@@ -27,59 +27,75 @@ export function LiveCallView({
 
   // Two Realtime channels — one per table. Both use the user's session client,
   // so RLS still gates broadcasts: an unauthed listener gets nothing.
+  //
+  // IMPORTANT: explicitly hand the realtime socket the user's JWT before
+  // subscribing. @supabase/ssr's browser client doesn't always propagate it
+  // automatically; without this, postgres_changes are silently dropped by
+  // RLS and the transcript / suggestions stay empty.
   useEffect(() => {
     const supabase = createBrowserClient();
+    let cancelled = false;
+    let eventsChannel: ReturnType<typeof supabase.channel> | null = null;
+    let suggestionsChannel: ReturnType<typeof supabase.channel> | null = null;
 
-    const eventsChannel = supabase
-      .channel(`call_events:${call.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'call_events',
-          filter: `call_id=eq.${call.id}`,
-        },
-        (payload) => {
-          const newEvent = payload.new as Row<'call_events'>;
-          setEvents((prev) => {
-            if (prev.some((e) => e.id === newEvent.id)) return prev;
-            return [...prev, newEvent];
-          });
-        },
-      )
-      .subscribe();
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      if (cancelled) return;
+      if (session) {
+        supabase.realtime.setAuth(session.access_token);
+      }
 
-    const suggestionsChannel = supabase
-      .channel(`suggestions:${call.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'suggestions',
-          filter: `call_id=eq.${call.id}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const inserted = payload.new as Row<'suggestions'>;
-            setSuggestions((prev) =>
-              prev.some((s) => s.id === inserted.id) ? prev : [inserted, ...prev],
-            );
-          } else if (payload.eventType === 'UPDATE') {
-            const updated = payload.new as Row<'suggestions'>;
-            setSuggestions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-          } else if (payload.eventType === 'DELETE') {
-            const deleted = payload.old as Pick<Row<'suggestions'>, 'id'>;
-            setSuggestions((prev) => prev.filter((s) => s.id !== deleted.id));
-          }
-        },
-      )
-      .subscribe();
+      eventsChannel = supabase
+        .channel(`call_events:${call.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'call_events',
+            filter: `call_id=eq.${call.id}`,
+          },
+          (payload) => {
+            const newEvent = payload.new as Row<'call_events'>;
+            setEvents((prev) => {
+              if (prev.some((e) => e.id === newEvent.id)) return prev;
+              return [...prev, newEvent];
+            });
+          },
+        )
+        .subscribe();
+
+      suggestionsChannel = supabase
+        .channel(`suggestions:${call.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'suggestions',
+            filter: `call_id=eq.${call.id}`,
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const inserted = payload.new as Row<'suggestions'>;
+              setSuggestions((prev) =>
+                prev.some((s) => s.id === inserted.id) ? prev : [inserted, ...prev],
+              );
+            } else if (payload.eventType === 'UPDATE') {
+              const updated = payload.new as Row<'suggestions'>;
+              setSuggestions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+            } else if (payload.eventType === 'DELETE') {
+              const deleted = payload.old as Pick<Row<'suggestions'>, 'id'>;
+              setSuggestions((prev) => prev.filter((s) => s.id !== deleted.id));
+            }
+          },
+        )
+        .subscribe();
+    });
 
     return () => {
-      void supabase.removeChannel(eventsChannel);
-      void supabase.removeChannel(suggestionsChannel);
+      cancelled = true;
+      if (eventsChannel) void supabase.removeChannel(eventsChannel);
+      if (suggestionsChannel) void supabase.removeChannel(suggestionsChannel);
     };
   }, [call.id]);
 

@@ -1,28 +1,37 @@
-import { cookies } from 'next/headers';
+import { Suspense } from 'react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { createServerClient } from '@/lib/db/client';
+import { createServiceClient } from '@/lib/db/client';
+import { getTenantIntegration } from '@/lib/db/queries/tenantIntegrations';
 import { requireTenant } from '@/lib/tenant/context';
 
+import { DialpadCard, type DialpadConnectionState } from './dialpad-card';
 import { RenameTenantForm } from './rename-form';
 
 export default async function SettingsPage() {
   const { tenantId, role } = await requireTenant();
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(cookieStore);
-  const { data: tenant } = await supabase
-    .from('tenants')
-    .select('name')
-    .eq('id', tenantId)
-    .maybeSingle();
+  const service = createServiceClient();
+  const [tenant, integration] = await Promise.all([
+    service.from('tenants').select('name').eq('id', tenantId).maybeSingle().then((r) => r.data),
+    getTenantIntegration(service, tenantId),
+  ]);
+
+  const dialpad: DialpadConnectionState = {
+    connected: Boolean(integration?.dialpad_user_id),
+    user_email: integration?.dialpad_user_email ?? null,
+    user_id: integration?.dialpad_user_id ?? null,
+    company_id: integration?.dialpad_company_id ?? null,
+    connected_at: integration?.connected_at ?? null,
+  };
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage your workspace.</p>
+        <p className="text-sm text-muted-foreground">Manage your workspace and integrations.</p>
       </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Workspace name</CardTitle>
@@ -36,6 +45,10 @@ export default async function SettingsPage() {
           <RenameTenantForm initialName={tenant?.name ?? ''} canEdit={role === 'owner'} />
         </CardContent>
       </Card>
+
+      <Suspense>
+        <DialpadCard state={dialpad} canManage={role === 'owner'} />
+      </Suspense>
     </div>
   );
 }

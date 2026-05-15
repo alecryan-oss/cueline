@@ -210,28 +210,40 @@ export type Database = {
       }
       tenant_integrations: {
         Row: {
+          connected_at: string | null
           dialpad_access_token_encrypted: string | null
+          dialpad_company_id: string | null
           dialpad_refresh_token_encrypted: string | null
           dialpad_subscription_id: string | null
           dialpad_token_expires_at: string | null
+          dialpad_user_email: string | null
+          dialpad_user_id: string | null
           dialpad_websocket_id: string | null
           tenant_id: string
           updated_at: string
         }
         Insert: {
+          connected_at?: string | null
           dialpad_access_token_encrypted?: string | null
+          dialpad_company_id?: string | null
           dialpad_refresh_token_encrypted?: string | null
           dialpad_subscription_id?: string | null
           dialpad_token_expires_at?: string | null
+          dialpad_user_email?: string | null
+          dialpad_user_id?: string | null
           dialpad_websocket_id?: string | null
           tenant_id: string
           updated_at?: string
         }
         Update: {
+          connected_at?: string | null
           dialpad_access_token_encrypted?: string | null
+          dialpad_company_id?: string | null
           dialpad_refresh_token_encrypted?: string | null
           dialpad_subscription_id?: string | null
           dialpad_token_expires_at?: string | null
+          dialpad_user_email?: string | null
+          dialpad_user_id?: string | null
           dialpad_websocket_id?: string | null
           tenant_id?: string
           updated_at?: string

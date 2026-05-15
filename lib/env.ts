@@ -15,6 +15,10 @@ const serverSchema = publicSchema.extend({
   DIALPAD_CLIENT_ID: z.string().min(1),
   DIALPAD_CLIENT_SECRET: z.string().min(1),
   DIALPAD_WEBHOOK_SECRET: z.string().min(1),
+  // Dialpad endpoint bases. Default to prod; switch to https://sandbox.dialpad.com
+  // for the developer sandbox environment.
+  DIALPAD_OAUTH_BASE_URL: z.string().url().default('https://dialpad.com'),
+  DIALPAD_API_BASE_URL: z.string().url().default('https://dialpad.com/api/v2'),
   TOKEN_ENCRYPTION_KEY: z
     .string()
     .regex(/^[0-9a-fA-F]{64}$/, 'TOKEN_ENCRYPTION_KEY must be 64 hex chars (32 bytes)'),
@@ -39,6 +43,8 @@ const source = {
   DIALPAD_CLIENT_ID: process.env.DIALPAD_CLIENT_ID,
   DIALPAD_CLIENT_SECRET: process.env.DIALPAD_CLIENT_SECRET,
   DIALPAD_WEBHOOK_SECRET: process.env.DIALPAD_WEBHOOK_SECRET,
+  DIALPAD_OAUTH_BASE_URL: process.env.DIALPAD_OAUTH_BASE_URL,
+  DIALPAD_API_BASE_URL: process.env.DIALPAD_API_BASE_URL,
   TOKEN_ENCRYPTION_KEY: process.env.TOKEN_ENCRYPTION_KEY,
   NODE_ENV: process.env.NODE_ENV,
   ENABLE_MOCK_CALLS: process.env.ENABLE_MOCK_CALLS,
