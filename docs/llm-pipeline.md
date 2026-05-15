@@ -1,21 +1,21 @@
 # LLM Pipeline
 
-> Anthropic API docs: https://docs.claude.com
+> OpenAI API docs: https://platform.openai.com/docs
 > Verify model names + parameter shapes against current docs at integration time. They change.
 
 ## Two-stage design — why
 
-The naive design is: every prospect utterance → Sonnet call → render response. This fails on two axes:
+The naive design is: every prospect utterance → `gpt-5` call → render response. This fails on two axes:
 
-1. **Cost.** Sonnet 4.6 is $3 / $15 per 1M tokens. A 30-minute call with 50 prospect turns at 2K input tokens each (transcript + RAG + system prompt) is ~$0.30 *per call* before caching, scaling linearly with call volume. Multi-tenant clients will not accept this.
+1. **Cost.** A full-tier suggestion model on every turn — 50 prospect turns × 2K input tokens × ($X per 1M tokens) — adds up to dollars per call before caching, scaling linearly with call volume. Multi-tenant clients will not accept this.
 2. **Noise.** Most prospect turns aren't questions or objections — they're acknowledgments, filler, small talk. Generating a suggestion for "yeah, mm-hm, right" is worse than useless; it trains the agent to ignore the panel.
 
 The two-stage pipeline solves both:
 
-- **Stage 1 (Haiku 4.5):** Cheap classifier. ~$1 / $5 per 1M tokens, sub-second TTFT, kills ~80% of turns before any expensive work happens.
-- **Stage 2 (Sonnet 4.6):** Only invoked when Stage 1 says "suggest." Streams the response.
+- **Stage 1 (`gpt-5-nano`):** Cheap classifier. Sub-second TTFT, supports structured (JSON schema) output, kills ~80% of turns before any expensive work happens.
+- **Stage 2 (`gpt-5`):** Only invoked when Stage 1 says "suggest." Streams the response.
 
-## Stage 1 — Haiku gating
+## Stage 1 — gpt-5-nano gating
 
 **Input:** the last prospect utterance + the previous ~10 turns for context.
 **Output:** a small JSON object, no streaming.
@@ -37,16 +37,16 @@ type Stage1Result = {
 };
 ```
 
-**System prompt (cached):** Defines the intent taxonomy + says "only suggest when intent is one of [...] and confidence is high. Default to suggest: false."
+**System prompt (cached automatically by OpenAI for prefixes >1024 tokens):** Defines the intent taxonomy + says "only suggest when intent is one of [...] and confidence is high. Default to suggest: false."
 
 **Constraints:**
-- `max_tokens: 200`. Output is JSON only.
+- `max_output_tokens: 200`. Output is JSON only (use Structured Outputs / `response_format: { type: 'json_schema' }`).
 - No streaming. Wait for the whole response, then decide.
 - Timeout: 800ms. On timeout, default to `suggest: false`. The transcript keeps flowing.
 
 **Where it runs:** Same Route Handler as Stage 2 (`/api/suggest`), called sequentially. Keeps the path simple.
 
-## Stage 2 — Sonnet suggestion
+## Stage 2 — gpt-5 suggestion
 
 **Input:**
 - Tenant-specific cached system prompt: brand voice, do/don't list, "always-on" facts (top-line product summary, pricing tiers in plain language).
@@ -65,18 +65,19 @@ type Stage1Result = {
 ```
 
 **Constraints:**
-- `max_tokens: 400`. Suggestions should be readable in 5 seconds.
+- `max_output_tokens: 400`. Suggestions should be readable in 5 seconds.
 - `stream: true`. Stream deltas straight into the `suggestions.content` row via an append-only update.
 - Temperature: 0.4. Sales suggestions need to be slightly varied but not creative-writing wild.
 - Timeout for first token: 2.5s. If exceeded, mark suggestion `is_complete = true, content = '[suggestion timed out]'` and dim it client-side.
 
 ## Prompt caching
 
-Use Anthropic's prompt caching aggressively. The tenant's system prompt + brand voice + always-on facts go into a cached block with a 5-minute TTL. During an active call, every Stage 2 call within 5 minutes pays 10% of input price for that block. Active calls are continuous, so the cache stays warm.
+OpenAI caches automatically. Any prompt with a stable prefix ≥1024 tokens hits the cache for ~5–10 minutes and pays roughly 50% of base input price on cached tokens. No `cache_control` markers, no manual cache writes — just keep the prefix stable across requests.
 
-Cache writes cost 1.25x base input price; reads cost 10%. Break-even is one read after one write, so this is a near-pure win for any tenant with calls lasting longer than one turn.
-
-The cached prefix is *per tenant*. Do not share cache blocks across tenants.
+What this means for us:
+- Put **everything stable** at the *start* of the prompt: tenant system prompt → brand voice rules → always-on KB facts → intent taxonomy. Variable content (current turn's transcript, RAG chunks for this turn) goes at the end.
+- Don't reorder, don't whitespace-shuffle, don't string-interpolate volatile values into the prefix. Cache misses cost real money during a 30-minute call.
+- The cached prefix is implicitly *per tenant* because the tenant system prompt is the first chunk. No cross-tenant leakage risk.
 
 ## Model strings — single source of truth
 
@@ -84,12 +85,12 @@ Put model IDs in `lib/ai/models.ts`:
 
 ```ts
 export const MODELS = {
-  GATE: 'claude-haiku-4-5',
-  SUGGEST: 'claude-sonnet-4-6',
+  GATE: 'gpt-5-nano',
+  SUGGEST: 'gpt-5',
 } as const;
 ```
 
-Never inline a model string elsewhere. When Anthropic ships a new Sonnet or Haiku, we update one file.
+Never inline a model string elsewhere. When OpenAI ships a new GPT or we re-evaluate the tier split, we update one file.
 
 ## Cost ceiling per tenant
 
@@ -107,10 +108,10 @@ Default ceiling for new tenants: $50/month. Adjustable per tenant.
 
 | Scenario | Behavior |
 |---|---|
-| Haiku 5xx error | Skip Stage 2 for this turn. Log. |
-| Haiku times out (>800ms) | Treat as `suggest: false`. Log. |
-| Sonnet 5xx error | Mark suggestion `is_complete = true` with content `'[unavailable]'`. Log. |
-| Sonnet TTFT > 2.5s | Same as above. The turn is dead. |
+| Stage 1 (`gpt-5-nano`) 5xx error | Skip Stage 2 for this turn. Log. |
+| Stage 1 times out (>800ms) | Treat as `suggest: false`. Log. |
+| Stage 2 (`gpt-5`) 5xx error | Mark suggestion `is_complete = true` with content `'[unavailable]'`. Log. |
+| Stage 2 TTFT > 2.5s | Same as above. The turn is dead. |
 | Tenant over cost ceiling | Skip Stage 2 entirely, render banner. |
 | Dialpad WS dropped | Pipeline stops naturally — no events, no suggestions. UI shows "transcript paused." |
 

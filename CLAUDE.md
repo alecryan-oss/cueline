@@ -27,7 +27,7 @@ These are not up for debate inside a normal feature task. If you think one needs
 | UI | Tailwind CSS + shadcn/ui | Standard, fast, looks decent by default |
 | DB / Auth / Realtime | Supabase (Postgres + pgvector + Realtime + Auth) | One service covers vector search, row-level multi-tenancy, and the live transcript fan-out |
 | Hosting | Vercel | Native Next.js, edge runtime where useful |
-| LLM | Anthropic Claude API | Sonnet 4.6 for suggestion quality, Haiku 4.5 for low-latency gating |
+| LLM | OpenAI API | `gpt-5` for suggestion quality, `gpt-5-nano` for low-latency gating |
 | Telephony | Dialpad (WebSocket Event Subscriptions + REST) | v1 is **Dialpad-only**. Zoom/Meet are out of scope until v2. |
 
 **Server Actions vs Route Handlers:**
@@ -108,24 +108,24 @@ Full event payloads, OAuth flow, scopes, and reconnection strategy: [docs/dialpa
 
 ## 6. The LLM pipeline
 
-Two-model setup. **Do not collapse this into a single Sonnet call** — the cost and latency profile depends on the split.
+Two-model setup. **Do not collapse this into a single suggestion-model call** — the cost and latency profile depends on the split.
 
-**Stage 1 — Haiku 4.5 (gating + intent classification):**
+**Stage 1 — `gpt-5-nano` (gating + intent classification):**
 Runs on every prospect-utterance turn. Decides:
 - Is this a question, an objection, a buying signal, or filler? (classification)
-- If filler → return `{ "suggest": false }` and stop. No Sonnet call, no UI update.
+- If filler → return `{ "suggest": false }` and stop. No Stage 2 call, no UI update.
 - If signal → extract intent + key entities, pass to Stage 2.
 
-Haiku is fast (~80–120 tok/s, sub-second TTFT) and cheap. ~80% of turns should die here.
+`gpt-5-nano` is the fastest, cheapest tier in the GPT-5 family — sub-second TTFT, structured-output (JSON schema) supported. ~80% of turns should die here.
 
-**Stage 2 — Sonnet 4.6 (suggestion generation):**
+**Stage 2 — `gpt-5` (suggestion generation):**
 Only invoked when Stage 1 says `suggest: true`. Receives the intent label + top-k RAG chunks from pgvector and streams a suggestion card back. Stream the response — do not wait for completion before rendering.
 
-**Prompt caching is mandatory.** The tenant's static system prompt, brand voice rules, and "always-on" KB context are cached (5-min TTL is enough for active calls). This is roughly a 10x cost reduction on input tokens during a sustained call.
+**Prompt caching is automatic.** OpenAI caches any prompt prefix above ~1024 tokens for ~5–10 minutes with no explicit `cache_control` markers. Structure the system prompt + tenant brand voice + always-on KB context as a stable prefix so the cache hits — that's roughly a 50% discount on cached input tokens during a sustained call. Don't shuffle the prefix between requests.
 
 **Model strings (use exact IDs, do not paraphrase):**
-- `claude-sonnet-4-6` (current Sonnet)
-- `claude-haiku-4-5` (current Haiku)
+- `gpt-5` (current suggestion model)
+- `gpt-5-nano` (current gating model)
 
 Full prompt structures, fallback behavior, and cost ceiling per tenant: [docs/llm-pipeline.md](./docs/llm-pipeline.md)
 
@@ -171,10 +171,10 @@ These have come up before or are easy traps. Don't:
 
 - **Don't add Zoom or Google Meet support.** v1 is Dialpad-only. If a feature seems to require generalizing the audio source, stop and ask first.
 - **Don't put the live transcript pipeline behind a Server Action.** They don't stream. This will look like it works in dev and fail under any real load.
-- **Don't call Sonnet on every transcript chunk.** That's a $$ disaster and ruins latency. Gate with Haiku.
+- **Don't call `gpt-5` on every transcript chunk.** That's a $$ disaster and ruins latency. Gate with `gpt-5-nano`.
 - **Don't store the full call audio.** Dialpad already does this. We store transcripts and our generated suggestions. Audio adds storage cost, compliance surface, and no value.
 - **Don't show a suggestion for every prospect sentence.** The "trigger threshold" is intentional. If the agent is overwhelmed by cards, they stop looking.
-- **Don't hardcode model strings inside business logic.** They live in `lib/ai/models.ts` so we can swap Sonnet 4.6 → 4.7 in one place.
+- **Don't hardcode model strings inside business logic.** They live in `lib/ai/models.ts` so we can swap `gpt-5` → next version in one place.
 - **Don't write to `kb_chunks` from a client component.** All writes go through Server Actions with Zod validation.
 - **Don't create a fresh Supabase client per request inside loops.** Reuse the per-request client from `lib/db/client.ts`.
 
@@ -198,8 +198,8 @@ These have come up before or are easy traps. Don't:
 /lib
   /ai
     /models.ts              # model string constants
-    /haiku-gate.ts          # Stage 1 classifier
-    /sonnet-suggest.ts      # Stage 2 generator
+    /gate.ts                # Stage 1 classifier (gpt-5-nano)
+    /suggest.ts             # Stage 2 generator (gpt-5)
     /prompts/               # cached system prompts per tenant
   /db
     /client.ts              # supabase client factory
@@ -226,7 +226,7 @@ These have come up before or are easy traps. Don't:
 - **Always ask before adding a new dependency.** Especially anything that touches auth, billing, or the AI pipeline.
 - **Always show a migration before applying it.** Supabase migrations are append-only — no edits to old files.
 - **When in doubt about Dialpad behavior, check [docs/dialpad-integration.md](./docs/dialpad-integration.md) first, then the live Dialpad docs at https://developers.dialpad.com.** Do not invent payload shapes.
-- **When in doubt about Anthropic API behavior**, the docs at https://docs.claude.com are authoritative. Model names, parameter shapes, and feature availability change — verify, don't guess.
+- **When in doubt about OpenAI API behavior**, the docs at https://platform.openai.com/docs are authoritative. Model names, parameter shapes, and feature availability change — verify, don't guess.
 - **If a task requires more than ~5 files of changes, propose a plan first** before writing the code.
 
 ---

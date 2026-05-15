@@ -11,8 +11,8 @@ A single prospect utterance during a live call traces this path:
 5. Supabase Realtime fans the row out to two subscribers:
    - The **agent's browser** (rolling transcript UI updates immediately).
    - The **suggestion worker** (`/api/suggest`), if the chunk is from the prospect (`speaker == "contact"`).
-6. The suggestion worker runs **Stage 1 (Haiku)** — gating + intent classification. If filler, stop. ~80% of turns die here.
-7. If Stage 1 says "suggest," **Stage 2 (Sonnet)** runs RAG over the tenant's KB chunks filtered by intent, then streams a response back via the worker, which writes streamed deltas to `suggestions`.
+6. The suggestion worker runs **Stage 1 (`gpt-5-nano`)** — gating + intent classification. If filler, stop. ~80% of turns die here.
+7. If Stage 1 says "suggest," **Stage 2 (`gpt-5`)** runs RAG over the tenant's KB chunks filtered by intent, then streams a response back via the worker, which writes streamed deltas to `suggestions`.
 8. The agent's browser, subscribed to `suggestions` for the active call, **renders the card as it streams**.
 
 ## Latency budget
@@ -24,12 +24,12 @@ Total target: prospect stops talking → suggestion visible in ≤ **2.0 seconds
 | Dialpad transcription | 300–800ms | Outside our control. Measure baseline per tenant. |
 | WS relay → Postgres | <50ms | Single INSERT, no joins. |
 | Realtime fanout | <100ms | Supabase Realtime is fast; the slow part is the client receiving the WebSocket frame. |
-| Haiku gating (Stage 1) | 300–500ms | Sub-second TTFT, short output. |
+| `gpt-5-nano` gating (Stage 1) | 300–500ms | Sub-second TTFT, short structured-output payload. |
 | pgvector retrieval | <100ms | Pre-built HNSW index, scoped query. |
-| Sonnet first token (Stage 2) | 500–800ms | This is when the card first appears with text streaming in. |
+| `gpt-5` first token (Stage 2) | 500–800ms | This is when the card first appears with text streaming in. |
 | **Total to first visible token** | **~1.3–2.3s** | Within budget for most turns. |
 
-If you blow this budget consistently, the feature dies. Optimize in this order: (1) skip Sonnet via better Stage-1 classification, (2) shrink the retrieval set, (3) cache prompts, (4) move the worker to an edge region near the tenant.
+If you blow this budget consistently, the feature dies. Optimize in this order: (1) skip Stage 2 via better Stage-1 classification, (2) shrink the retrieval set, (3) keep the cached prompt prefix stable so OpenAI's automatic cache hits, (4) move the worker to an edge region near the tenant.
 
 ## Where the WS lives
 
@@ -53,7 +53,7 @@ The Next.js `/api/dialpad/stream` Route Handler exists for **outgoing browser �
 
 **Suggestion worker (`/api/suggest` Route Handler)**
 - Triggered by Supabase Realtime via a Database Function + pg_net call, OR polled from a lightweight queue. **Decide one and stick with it** — see [llm-pipeline.md](./llm-pipeline.md).
-- Runs the two-stage Claude pipeline.
+- Runs the two-stage OpenAI pipeline.
 - Streams output back to Supabase, which fans out to the browser.
 
 **Agent live view (`/(live)/call/[callId]`)**
@@ -69,6 +69,6 @@ The Next.js `/api/dialpad/stream` Route Handler exists for **outgoing browser �
 ## Failure modes to design for
 
 - **Dialpad WS drops mid-call:** Agent should see a banner "transcript paused, reconnecting." Suggestions queue resumes after reconnect.
-- **Claude API outage:** Live view shows "suggestions unavailable" without breaking the transcript view. Transcript is the floor; suggestions are extra.
+- **OpenAI API outage:** Live view shows "suggestions unavailable" without breaking the transcript view. Transcript is the floor; suggestions are extra.
 - **Tenant exceeds cost ceiling:** Stage 2 is disabled, Stage 1 keeps running. Agent sees "daily limit reached" but the transcript keeps working.
 - **Slow Sonnet response:** If first token doesn't arrive within 2.5s, mark the suggestion as "stale" client-side and dim it. The conversation has moved on.

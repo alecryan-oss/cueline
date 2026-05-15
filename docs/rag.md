@@ -29,7 +29,7 @@ A chunk can carry multiple tags. `brand_voice` chunks are special — they're in
 
 1. Tenant admin uploads a document (PDF, DOCX, MD, plain text) or pastes text via the KB editor.
 2. Server Action extracts text, splits into semantic chunks (~300–500 tokens each, with overlap on prose, no overlap on Q&A pairs).
-3. For each chunk, run a **Claude Haiku** classification call that returns intent tags + a one-line title.
+3. For each chunk, run a **`gpt-5-nano`** classification call that returns intent tags + a one-line title.
 4. Generate embedding via the chosen embedding model (see below).
 5. Insert into `kb_chunks` with tenant_id, intent_tags, content, embedding.
 
@@ -37,9 +37,9 @@ Cost note: classification at ingest is one-time per chunk. Cheap.
 
 ## Embedding model
 
-Use **Voyage AI's `voyage-3-large`** or whatever Anthropic's currently-recommended embedding partner is at integration time — verify against https://docs.claude.com/en/docs/build-with-claude/embeddings. OpenAI's `text-embedding-3-small` is the fallback if Voyage isn't an option.
+Use OpenAI's **`text-embedding-3-small`** (1536 dims, matches our `vector(1536)` schema). Voyage AI's `voyage-3-large` was the original spec back when the LLM provider was Anthropic; we collapsed to a single OpenAI provider, so embeddings stay in the same family as the gating + suggestion models.
 
-Set `vector(1536)` in the schema if using `text-embedding-3-small`. Adjust if the chosen model has a different dimension — and never mix dimensions in one table.
+Verify against https://platform.openai.com/docs/guides/embeddings. Never mix embedding dimensions in one table — re-embedding all chunks is the only safe migration if the model changes.
 
 ## Retrieval at suggestion time
 
