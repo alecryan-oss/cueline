@@ -39,6 +39,10 @@ yarn-error.log*
 # claude code session storage
 .claude/
 
+# supabase CLI local state (per-developer)
+supabase/.temp/
+supabase/.branches/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
