@@ -87,20 +87,25 @@ function formatHistory(events: Row<'call_events'>[]): string {
  * Stream a prospect reply, emitting it in ~5–10 word chunks via `onChunk`.
  * Chunks split at sentence boundaries when possible, otherwise at the
  * 8th word. This mimics how Dialpad delivers transcript fragments.
+ *
+ * `personaOverride` lets the training mode swap in a specific scenario
+ * (e.g. "tire kicker") instead of the default callId-deterministic pick.
  */
 export async function generateProspectReplyStream({
   tenantId,
   callId,
   recentEvents,
   onChunk,
+  personaOverride,
 }: {
   tenantId: string;
   callId: string;
   recentEvents: Row<'call_events'>[];
   onChunk: (text: string) => Promise<void>;
+  personaOverride?: string;
 }): Promise<void> {
-  const persona = pickPersona(callId);
-  const systemPrompt = SYSTEM_PROMPT_BASE.replace('{PERSONA}', persona.description);
+  const personaText = personaOverride ?? pickPersona(callId).description;
+  const systemPrompt = SYSTEM_PROMPT_BASE.replace('{PERSONA}', personaText);
 
   let buffer = '';
   let pendingFlush: Promise<void> = Promise.resolve();

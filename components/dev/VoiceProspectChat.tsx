@@ -41,7 +41,15 @@ function getSpeechRecognition(): SpeechRecognitionCtor | null {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
 }
 
-export function VoiceProspectChat({ callId }: { callId: string }) {
+export function VoiceProspectChat({
+  callId,
+  scenario,
+  scenarioLabel,
+}: {
+  callId: string;
+  scenario?: string;
+  scenarioLabel?: string;
+}) {
   const [listening, setListening] = useState(false);
   const [muted, setMuted] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -78,7 +86,7 @@ export function VoiceProspectChat({ callId }: { callId: string }) {
     if (!message || pending) return;
     setInterim('');
     startTransition(async () => {
-      const result = await sendProspectMessage(callId, message);
+      const result = await sendProspectMessage(callId, message, scenario);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -156,9 +164,12 @@ export function VoiceProspectChat({ callId }: { callId: string }) {
   return (
     <div className="fixed bottom-4 right-4 z-50 w-[360px] max-w-[calc(100vw-2rem)] rounded-lg border bg-background shadow-lg">
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <div className="space-y-0.5">
-          <p className="text-xs font-medium">
-            <span className="text-muted-foreground">Voice prospect</span>
+        <div className="min-w-0 space-y-0.5">
+          <p className="truncate text-xs font-medium">
+            <span className="text-muted-foreground">
+              {scenarioLabel ? 'Training:' : 'Voice prospect'}
+            </span>
+            {scenarioLabel ? <span className="ml-1">{scenarioLabel}</span> : null}
           </p>
           <p className="text-[11px] text-muted-foreground">
             {!supported

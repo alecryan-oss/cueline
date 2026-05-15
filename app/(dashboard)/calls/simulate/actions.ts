@@ -104,6 +104,43 @@ export async function startVoiceProspectCall(formData: FormData): Promise<void> 
   redirect(`/call/${call.id}?voice=true`);
 }
 
+const TrainingSchema = z.object({
+  scenario: z.string().min(1).max(64),
+  mode: z.enum(['text', 'voice']).default('text'),
+});
+
+export async function startTrainingCall(formData: FormData): Promise<void> {
+  ensureMockEnabled();
+  const trainingParsed = TrainingSchema.safeParse({
+    scenario: formData.get('scenario'),
+    mode: formData.get('mode')?.toString() || undefined,
+  });
+  if (!trainingParsed.success) {
+    throw new Error('Pick a training scenario');
+  }
+  const { userId, tenantId } = await requireTenant();
+  const setup = extractSetup(formData);
+  const service = createServiceClient();
+
+  const call = await insertCall(service, tenantId, {
+    dialpad_call_id: `mock-${nanoid(12)}`,
+    agent_user_id: userId,
+    started_at: new Date().toISOString(),
+    status: 'active',
+    call_type: setup.call_type,
+    goal: setup.goal,
+  });
+
+  const params = new URLSearchParams({
+    train: trainingParsed.data.scenario,
+  });
+  if (trainingParsed.data.mode === 'voice') params.set('voice', 'true');
+  else params.set('ai', 'true');
+
+  revalidatePath('/calls/simulate');
+  redirect(`/call/${call.id}?${params.toString()}`);
+}
+
 const ScriptSchema = z.object({
   script: z.enum(MOCK_TRANSCRIPT_NAMES as [MockTranscriptName, ...MockTranscriptName[]]),
 });

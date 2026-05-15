@@ -8,7 +8,15 @@ import { sendProspectMessage } from '@/app/(live)/call/[callId]/prospect-actions
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
-export function ProspectChat({ callId }: { callId: string }) {
+export function ProspectChat({
+  callId,
+  scenario,
+  scenarioLabel,
+}: {
+  callId: string;
+  scenario?: string;
+  scenarioLabel?: string;
+}) {
   const [text, setText] = useState('');
   const [pending, startTransition] = useTransition();
 
@@ -17,7 +25,7 @@ export function ProspectChat({ callId }: { callId: string }) {
     if (!message || pending) return;
     setText('');
     startTransition(async () => {
-      const result = await sendProspectMessage(callId, message);
+      const result = await sendProspectMessage(callId, message, scenario);
       if (!result.ok) {
         toast.error(result.error);
         setText(message);
@@ -35,11 +43,14 @@ export function ProspectChat({ callId }: { callId: string }) {
   return (
     <div className="fixed bottom-4 right-4 z-50 w-[420px] max-w-[calc(100vw-2rem)] rounded-lg border bg-background shadow-lg">
       <div className="flex items-center justify-between border-b px-3 py-2">
-        <p className="text-xs font-medium">
-          <span className="text-muted-foreground">AI prospect chat</span>
+        <p className="truncate text-xs font-medium">
+          <span className="text-muted-foreground">
+            {scenarioLabel ? 'Training:' : 'AI prospect'}
+          </span>
+          {scenarioLabel ? <span className="ml-1">{scenarioLabel}</span> : null}
         </p>
-        <span className="text-[11px] text-muted-foreground">
-          {pending ? 'Prospect typing…' : 'Enter to send · Shift+Enter for new line'}
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {pending ? 'Prospect typing…' : 'Enter to send'}
         </span>
       </div>
       <div className="flex items-end gap-2 p-2">

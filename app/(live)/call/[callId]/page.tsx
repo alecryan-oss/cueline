@@ -13,17 +13,18 @@ import {
   MOCK_TRANSCRIPT_NAMES,
   type MockTranscriptName,
 } from '@/lib/dev/mockTranscripts';
+import { getTrainingScenario } from '@/lib/dev/trainingScenarios';
 import { env } from '@/lib/env';
 import { requireTenant } from '@/lib/tenant/context';
 
 type Props = {
   params: Promise<{ callId: string }>;
-  searchParams: Promise<{ script?: string; ai?: string; voice?: string }>;
+  searchParams: Promise<{ script?: string; ai?: string; voice?: string; train?: string }>;
 };
 
 export default async function LiveCallPage({ params, searchParams }: Props) {
   const { callId } = await params;
-  const { script, ai, voice } = await searchParams;
+  const { script, ai, voice, train } = await searchParams;
 
   const { tenantId } = await requireTenant();
   const cookieStore = await cookies();
@@ -47,6 +48,9 @@ export default async function LiveCallPage({ params, searchParams }: Props) {
       : null;
   const aiMode = mockEnabled && ai === 'true';
   const voiceMode = mockEnabled && voice === 'true';
+  const scenario = mockEnabled ? getTrainingScenario(train) : null;
+  const scenarioKey = scenario?.key;
+  const scenarioLabel = scenario?.label;
 
   return (
     <>
@@ -59,9 +63,17 @@ export default async function LiveCallPage({ params, searchParams }: Props) {
       {validScript ? (
         <ScriptPlayer callId={call.id} scriptName={validScript} />
       ) : voiceMode ? (
-        <VoiceProspectChat callId={call.id} />
+        <VoiceProspectChat
+          callId={call.id}
+          scenario={scenarioKey}
+          scenarioLabel={scenarioLabel}
+        />
       ) : aiMode ? (
-        <ProspectChat callId={call.id} />
+        <ProspectChat
+          callId={call.id}
+          scenario={scenarioKey}
+          scenarioLabel={scenarioLabel}
+        />
       ) : null}
     </>
   );

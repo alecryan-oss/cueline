@@ -8,6 +8,7 @@ import { createServerClient, createServiceClient } from '@/lib/db/client';
 import { listRecentCallEvents } from '@/lib/db/queries/callEvents';
 import { getCallById } from '@/lib/db/queries/calls';
 import { insertCallEvent } from '@/lib/db/queries/callEvents';
+import { getTrainingScenario } from '@/lib/dev/trainingScenarios';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import { requireTenant } from '@/lib/tenant/context';
@@ -19,6 +20,7 @@ export type ProspectActionResult =
 const Schema = z.object({
   callId: z.string().uuid(),
   text: z.string().trim().min(1).max(2000),
+  scenario: z.string().max(64).optional(),
 });
 
 function ensureMockEnabled() {
@@ -39,13 +41,15 @@ const CHUNK_DELAY_MS = 350;
 export async function sendProspectMessage(
   callId: string,
   text: string,
+  scenario?: string,
 ): Promise<ProspectActionResult> {
   ensureMockEnabled();
 
-  const parsed = Schema.safeParse({ callId, text });
+  const parsed = Schema.safeParse({ callId, text, scenario });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid input' };
   }
+  const trainingPersona = getTrainingScenario(parsed.data.scenario)?.persona;
 
   const { tenantId } = await requireTenant();
 
@@ -79,6 +83,7 @@ export async function sendProspectMessage(
       tenantId,
       callId: call.id,
       recentEvents: recent,
+      personaOverride: trainingPersona,
       onChunk: async (chunk) => {
         fullText += (fullText ? ' ' : '') + chunk;
         try {

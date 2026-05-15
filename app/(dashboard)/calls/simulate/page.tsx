@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CallSetupDialog } from '@/components/dev/CallSetupDialog';
+import { TrainingSetupDialog } from '@/components/dev/TrainingSetupDialog';
 import { createServerClient } from '@/lib/db/client';
 import { MOCK_TRANSCRIPT_NAMES } from '@/lib/dev/mockTranscripts';
 import { env } from '@/lib/env';
@@ -16,6 +17,7 @@ import {
   startAiProspectCall,
   startBlankMockCall,
   startScriptedMockCall,
+  startTrainingCall,
   startVoiceProspectCall,
 } from './actions';
 
@@ -48,23 +50,44 @@ export default async function SimulatePage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-brand/30 ring-1 ring-brand/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Train with AI
+              <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand">
+                practice
+              </span>
+            </CardTitle>
+            <CardDescription>
+              Practice against a chosen prospect persona. Suggestions appear live.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <TrainingSetupDialog
+              triggerLabel="Start training"
+              triggerClassName="w-full"
+              action={startTrainingCall}
+            />
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Live AI prospect</CardTitle>
             <CardDescription>
-              An AI plays a small business owner being pitched website services. Best test
-              of the suggestion pipeline.
+              Random small-biz owner. Same pipeline, less directed than training.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <CallSetupDialog
               triggerLabel="Type to chat"
+              triggerVariant="outline"
               triggerClassName="w-full"
               action={startAiProspectCall}
             />
             <CallSetupDialog
-              triggerLabel="🎤 Voice mode (Chrome/Edge)"
+              triggerLabel="🎤 Voice mode"
               triggerVariant="outline"
               triggerClassName="w-full"
               action={startVoiceProspectCall}
